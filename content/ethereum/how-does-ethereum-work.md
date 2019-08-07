@@ -7,7 +7,7 @@
 
 ## 以太坊区块链
 
-以太坊区块链本质上是一个 **基于交易的状态机** 。
+以太坊区块链  本质上是一个 **基于交易的状态机** 。
 
 
 [1] https://medium.com/@preethikasireddy/how-does-ethereum-work-anyway-22d1df506369
