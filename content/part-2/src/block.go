@@ -21,6 +21,8 @@ func NewBlock(data string, prevBlockHash []byte) *Block {
 		Hash:          []byte{},
 		Data:          []byte(data),
 		Nonce:         0}
+
+	// 使用pwd计算hash	
 	pow := NewProofOfWork(block)
 	nonce, hash := pow.Run()
 

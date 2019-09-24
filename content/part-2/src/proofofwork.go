@@ -11,6 +11,7 @@ import (
 // 难度值，这里表示哈希的前 24 位必须是 0
 const targetBits = 24
 
+// nounce的取值空间
 const maxNonce = math.MaxInt64
 
 // 每个块的工作量都必须要证明，所有有个指向 Block 的指针
@@ -23,10 +24,9 @@ type ProofOfWork struct {
 // target 等于 1 左移 256 - targetBits 位
 func NewProofOfWork(b *Block) *ProofOfWork {
 	target := big.NewInt(1)
+	// 难度上限
 	target.Lsh(target, uint(256-targetBits))
-
 	pow := &ProofOfWork{b, target}
-
 	return pow
 }
 
@@ -54,8 +54,8 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 
 	fmt.Printf("Mining the block containing \"%s\"\n", pow.block.Data)
 	for nonce < maxNonce {
+		// 计算pow
 		data := pow.prepareData(nonce)
-
 		hash = sha256.Sum256(data)
 		hashInt.SetBytes(hash[:])
 
@@ -74,12 +74,9 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 // 验证工作量，只要哈希小于目标就是有效工作量
 func (pow *ProofOfWork) Validate() bool {
 	var hashInt big.Int
-
 	data := pow.prepareData(pow.block.Nonce)
 	hash := sha256.Sum256(data)
 	hashInt.SetBytes(hash[:])
-
 	isValid := hashInt.Cmp(pow.target) == -1
-
 	return isValid
 }

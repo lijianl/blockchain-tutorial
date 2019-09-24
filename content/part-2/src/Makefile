@@ -10,4 +10,8 @@ run:
 	@echo "==> Run"
 	@./$(BINARY)
 
+
+clean:
+	rm ./$(BINARY)
+
 .PHONY: build run
