@@ -7,6 +7,8 @@ import (
 	"github.com/boltdb/bolt"
 )
 
+
+// 数据库文件, bucket
 const dbFile = "blockchain.db"
 const blocksBucket = "blocks"
 
@@ -101,6 +103,7 @@ func (bc *Blockchain) AddBlock(data string) {
 	})
 }
 
+// 区块迭代器
 type BlockchainIterator struct {
 	currentHash []byte
 	db          *bolt.DB

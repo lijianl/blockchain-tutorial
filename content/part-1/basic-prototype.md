@@ -1,11 +1,23 @@
 基本原型
 ========
+<!-- TOC -->
+
+- [引言](#引言)
+- [区块](#区块)
+- [区块链](#区块链)
+- [总结](#总结)
+
+<!-- /TOC -->
+
 
 ## 引言
 
-区块链是 21 世纪最具革命性的技术之一，它仍然处于不断成长的阶段，而且还有很多潜力尚未显现。 本质上，区块链只是一个分布式数据库而已。 不过，使它独一无二的是，区块链是一个**公开**的数据库，而不是一个私人数据库，也就是说，每个使用它的人都有一个完整或部分的副本。 只有经过其他“数据库管理员”的同意，才能向数据库中添加新的记录。 此外，也正是由于区块链，才使得加密货币和智能合约成为现实。
+区块链是 21 世纪最具革命性的技术之一，它仍然处于不断成长的阶段，而且还有很多潜力尚未显现。 本质上，区块链只是一个`分布式数据库`而已。 不过，使它独一无二的是，区块链是一个**公开**的数据库，而不是一个私人数据库，也就是说，每个使用它的人都有一个完整或部分的副本。 只有经过其他“数据库管理员”的同意，才能向数据库中添加新的记录。 此外，也正是由于区块链，才使得加密货币和智能合约成为现实。
 
 在本系列文章中，我们将实现一个简化版的区块链，并基于它来构建一个简化版的加密货币。
+
+
+keys: `去中心化的数据库; 数据库管理员:记账权`
 
 ## 区块
 
@@ -15,14 +27,14 @@
 
 ```go
 type Block struct {
-	Timestamp     int64
-	Data          []byte
-	PrevBlockHash []byte
 	Hash          []byte
+	PrevBlockHash []byte
+	Data          []byte
+	Timestamp     int64
 }
 ```
 
-字段            | 解释
+字段             | 解释
 :----:          | :----
 `Timestamp`     | 当前时间戳，也就是区块创建的时间
 `PrevBlockHash` | 前一个块的哈希，即父哈希
@@ -60,7 +72,8 @@ type BlockHeader struct {
     // uint32 on the wire and therefore is limited to 2106.
     Timestamp time.Time
 
-    // Difficulty target for the block.
+	// Difficulty target for the block.
+	// 难度系数: 
     Bits uint32
 
     // Nonce used to generate the block.
@@ -93,7 +106,7 @@ func (b *Block) SetHash() {
 	timestamp := []byte(strconv.FormatInt(b.Timestamp, 10))
 	headers := bytes.Join([][]byte{b.PrevBlockHash, b.Data, timestamp}, []byte{})
 	hash := sha256.Sum256(headers)
-
+	// 没有难度计算； 难度计算是为了维持出快;
 	b.Hash = hash[:]
 }
 ```
@@ -103,7 +116,7 @@ func (b *Block) SetHash() {
 ```go
 func NewBlock(data string, prevBlockHash []byte) *Block {
 	block := &Block{time.Now().Unix(), []byte(data), prevBlockHash, []byte{}}
-	block.SetHash()
+	block.SetHash()  // 计算hash
 	return block
 }
 ```
@@ -186,7 +199,7 @@ Hash: 561237522bb7fcfbccbc6fe0e98bbbde7427ffe01c6fb223f7562288ca2295d1
 
 ## 总结
 
-我们创建了一个非常简单的区块链原型：它仅仅是一个数组构成的一系列区块，每个块都与前一个块相关联。真实的区块链要比这复杂得多。在我们的区块链中，加入新的块非常简单，也很快，但是在真实的区块链中，加入新的块需要很多工作：你必须要经过十分繁重的计算（这个机制叫做工作量证明），来获得添加一个新块的权力。并且，区块链是一个分布式数据库，并且没有单一决策者。因此，要加入一个新块，必须要被网络的其他参与者确认和同意（这个机制叫做共识（consensus））。还有一点，我们的区块链还没有任何的交易！
+我们创建了一个非常简单的`区块链原型`：它仅仅是一个数组构成的一系列区块，每个块都与前一个块相关联。真实的区块链要比这复杂得多。在我们的区块链中，加入新的块非常简单，也很快，但是在真实的区块链中，加入新的块需要很多工作：你必须要经过十分繁重的计算（这个机制叫做工作量证明），来获得添加一个新块的权力。并且，区块链是一个分布式数据库，并且没有单一决策者。因此，要加入一个新块，必须要被网络的其他参与者确认和同意（这个机制叫做共识（consensus））。还有一点，我们的区块链还没有任何的交易！
 
 进入 src 目录查看代码，执行 `make` 即可运行：
 

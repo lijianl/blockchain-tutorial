@@ -1,9 +1,23 @@
 工作量证明
 ==========
 
+<!-- TOC -->
+
+- [工作量证明](#%e5%b7%a5%e4%bd%9c%e9%87%8f%e8%af%81%e6%98%8e)
+	- [工作量证明](#%e5%b7%a5%e4%bd%9c%e9%87%8f%e8%af%81%e6%98%8e-1)
+	- [哈希计算](#%e5%93%88%e5%b8%8c%e8%ae%a1%e7%ae%97)
+	- [Hashcash](#hashcash)
+	- [实现](#%e5%ae%9e%e7%8e%b0)
+	- [总结](#%e6%80%bb%e7%bb%93)
+
+<!-- /TOC -->
+
+
 在上一节，我们构造了一个非常简单的数据结构 -- 区块，它也是整个区块链数据库的核心。目前所完成的区块链原型，已经可以通过链式关系把区块相互关联起来：每个块都与前一个块相关联。
 
 但是，当前实现的区块链有一个巨大的缺陷：向链中加入区块太容易，也太廉价了。而区块链和比特币的其中一个核心就是，要想加入新的区块，必须先完成一些非常困难的工作。在本文，我们将会弥补这个缺陷。
+
+`POW：为了实现记账权的竞争,实现去中心化的权限,同时提供奖励`
 
 ## 工作量证明
 
@@ -34,7 +48,7 @@
 比特币使用 [Hashcash](https://en.wikipedia.org/wiki/Hashcash) ，一个最初用来防止垃圾邮件的工作量证明算法。它可以被分解为以下步骤：
 
 1. 取一些公开的数据（比如，如果是 email 的话，它可以是接收者的邮件地址；在比特币中，它是区块头）
-2. 给这个公开数据添加一个计数器。计数器默认从 0 开始
+2. 给这个公开数据添加一个计数器。计数器默认从 0 开始(Nounce++,uint32)
 3. 将  **data(数据)** 和 **counter(计数器)** 组合到一起，获得一个哈希
 4. 检查哈希是否符合一定的条件：
    1. 如果符合条件，结束
@@ -55,12 +69,14 @@
 好了，完成了理论层面，来动手写代码吧！首先，定义挖矿的难度值：
 
 ```go
+
+// 难度系数,前面0的个数
 const targetBits = 24
 ```
 
 在比特币中，当一个块被挖出来以后，“target bits” 代表了区块头里存储的难度，也就是开头有多少个 0。这里的 24 指的是算出来的哈希前 24 位必须是 0，如果用 16 进制表示，就是前 6 位必须是 0，这一点从最后的输出可以看出来。目前我们并不会实现一个动态调整目标的算法，所以将难度定义为一个全局的常量即可。
 
-24 其实是一个可以任意取的数字，其目的只是为了有一个目标（target）而已，这个目标占据不到 256 位的内存空间。同时，我们想要有足够的差异性，但是又不至于大的过分，因为差异性越大，就越难找到一个合适的哈希。
+24 其实是一个可以任意取的数字，其目的只是为了有一个目标（target）而已，这个目标占据不到 256 位的内存空间(uint32)。同时，我们想要有足够的差异性，但是又不至于大的过分，因为差异性越大，就越难找到一个合适的哈希。
 
 ```go
 type ProofOfWork struct {
@@ -69,11 +85,12 @@ type ProofOfWork struct {
 }
 
 func NewProofOfWork(b *Block) *ProofOfWork {
+	// 初始 = 1
 	target := big.NewInt(1)
+	// 左移 256-taggetBit 位数
 	target.Lsh(target, uint(256-targetBits))
-
+	// target目前最大难度,难度的上界
 	pow := &ProofOfWork{b, target}
-
 	return pow
 }
 ```
@@ -151,6 +168,8 @@ func (pow *ProofOfWork) prepareData(nonce int) []byte {
 很好，到这里，所有的准备工作就完成了，下面来实现 PoW 算法的核心：
 
 ```go
+
+// POW算法
 func (pow *ProofOfWork) Run() (int, []byte) {
 	var hashInt big.Int
 	var hash [32]byte
@@ -160,25 +179,26 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 	for nonce < maxNonce {
 		data := pow.prepareData(nonce)
 		hash = sha256.Sum256(data)
+		// 计算hash
 		hashInt.SetBytes(hash[:])
-
+		// 与目标作比较
 		if hashInt.Cmp(pow.target) == -1 {
 		    fmt.Printf("\r%x", hash)
 			break
 		} else {
+			// nounce递增
 			nonce++
 		}
 	}
 	fmt.Print("\n\n")
-
 	return nonce, hash[:]
 }
 ```
 
 首先我们对变量进行初始化：
 
-- `HashInt` 是 `hash` 的整形表示；
-- `nonce` 是计数器。
+- `HashInt` 是 `hash` 的整形表示,比较target
+- `nonce` 是计数器,用于计算合适的hash
 
 然后开始一个 “无限” 循环：`maxNonce` 对这个循环进行了限制, 它等于 `math.MaxInt64`，这是为了避免 `nonce` 可能出现的溢出。尽管我们 PoW 的难度很小，以至于计数器其实不太可能会溢出，但最好还是以防万一检查一下。
 
@@ -194,12 +214,12 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 ```go
 func NewBlock(data string, prevBlockHash []byte) *Block {
 	block := &Block{time.Now().Unix(), []byte(data), prevBlockHash, []byte{}, 0}
+	// 计算POW
 	pow := NewProofOfWork(block)
 	nonce, hash := pow.Run()
-
+    // 保留计算的结果
 	block.Hash = hash[:]
 	block.Nonce = nonce
-
 	return block
 }
 ```
@@ -248,25 +268,22 @@ Hash: 000000b33185e927c9a989cc7d5aaaed739c56dad9fd9361dea558b9bfaf5fbe
 ```go
 func (pow *ProofOfWork) Validate() bool {
 	var hashInt big.Int
-
 	data := pow.prepareData(pow.block.Nonce)
 	hash := sha256.Sum256(data)
 	hashInt.SetBytes(hash[:])
-
 	isValid := hashInt.Cmp(pow.target) == -1
-
 	return isValid
 }
 ```
 
-这里，就是我们就用到了上面保存的 `nonce`。
+这里，就是我们就用到了上面保存的 `nonce`。大小是`uint32`
 
 再来检测一次是否正常工作：
 
 ```go
 func main() {
 	...
-
+    // 全部难度校验
 	for _, block := range bc.blocks {
 		...
 		pow := NewProofOfWork(block)
@@ -304,6 +321,9 @@ PoW: true
 ## 总结
 
 我们离真正的区块链又进了一步：现在需要经过一些困难的工作才能加入新的块，因此挖矿就有可能了。但是，它仍然缺少一些至关重要的特性：区块链数据库并不是持久化的，没有钱包，地址，交易，也没有共识机制。不过，所有的这些，我们都会在接下来的文章中实现，现在，愉快地挖矿吧！
+
+
+`POW 主要用来解决记账权的问题`
 
 参考：
 

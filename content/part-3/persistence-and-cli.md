@@ -1,9 +1,22 @@
 持久化和命令行接口
 ==================
 
+<!-- TOC -->
+
+- [引言](#引言)
+- [选择数据库](#选择数据库)
+- [BoltDB](#boltdb)
+- [数据库结构](#数据库结构)
+- [序列化](#序列化)
+- [持久化](#持久化)
+- [检查区块链](#检查区块链)
+- [CLI](#cli)
+
+<!-- /TOC -->
+
 ## 引言
 
-到目前为止，我们已经构建了一个有工作量证明机制的区块链。有了工作量证明，挖矿也就有了着落。虽然目前距离一个有着完整功能的区块链越来越近了，但是它仍然缺少了一些重要的特性。在今天的内容中，我们会将区块链持久化到一个数据库中，然后会提供一个简单的命令行接口，用来完成一些与区块链的交互操作。本质上，区块链是一个分布式数据库，不过，我们暂时先忽略 “分布式” 这个部分，仅专注于 “存储” 这一点。
+到目前为止，我们已经构建了一个有工作量证明机制的区块链。有了工作量证明，挖矿也就有了着落。虽然目前距离一个有着完整功能的区块链越来越近了，但是它仍然缺少了一些重要的特性。在今天的内容中，我们会将区块链持久化到一个数据库中，然后会提供一个简单的命令行接口，用来完成一些与区块链的交互操作。本质上，区块链是一个分布式数据库，不过，`我们暂时先忽略 “分布式” 这个部分，仅专注于 “存储” 这一点`。
 
 ## 选择数据库
 
@@ -30,7 +43,7 @@ BoltDB GitHub 上的 [README](https://github.com/boltdb/bolt) 是这么说的：
 
 Bolt 使用键值存储，这意味着它没有像 SQL RDBMS （MySQL，PostgreSQL 等等）的表，没有行和列。相反，数据被存储为键值对（key-value pair，就像 Golang 的 map）。键值对被存储在 bucket 中，这是为了将相似的键值对进行分组（类似 RDBMS 中的表格）。因此，为了获取一个值，你需要知道一个 bucket 和一个键（key）。
 
-需要注意的一个事情是，Bolt 数据库没有数据类型：键和值都是字节数组（byte array）。鉴于需要在里面存储 Go 的结构（准确来说，也就是存储**Block（块）**），我们需要对它们进行序列化，也就说，实现一个从 Go struct 转换到一个 byte array 的机制，同时还可以从一个 byte array 再转换回 Go struct。虽然我们将会使用  [encoding/gob](https://golang.org/pkg/encoding/gob/)  来完成这一目标，但实际上也可以选择使用 **JSON**, **XML**, **Protocol Buffers** 等等。之所以选择使用 **encoding/gob**, 是因为它很简单，而且是 Go 标准库的一部分。
+需要注意的一个事情是，Bolt 数据库没有数据类型：键和值都是字节数组（byte array）。鉴于需要在里面存储 Go 的结构（准确来说，也就是存储**Block（块）**），我们需要对它们进行`序列化，也就说，实现一个从 Go struct 转换到一个 byte array 的机制，同时还可以从一个 byte array 再转换回 Go struct`。虽然我们将会使用  [encoding/gob](https://golang.org/pkg/encoding/gob/)  来完成这一目标，但实际上也可以选择使用 **JSON**, **XML**, **Protocol Buffers** 等等。之所以选择使用 **encoding/gob**, 是因为它很简单，而且是 Go 标准库的一部分。
 
 虽然 BoltDB 的作者出于个人原因已经不在对其维护（见[README](https://github.com/boltdb/bolt/commit/fa5367d20c994db73282594be0146ab221657943)）, 不过关系不大，它已经足够稳定了，况且也有活跃的 fork:[coreos/bblot](https://github.com/coreos/bbolt)。
 
@@ -82,9 +95,7 @@ key                              | value
 func (b *Block) Serialize() []byte {
 	var result bytes.Buffer
 	encoder := gob.NewEncoder(&result)
-
 	err := encoder.Encode(b)
-
 	return result.Bytes()
 }
 ```
@@ -96,14 +107,11 @@ func (b *Block) Serialize() []byte {
 ```go
 func DeserializeBlock(d []byte) *Block {
 	var block Block
-
 	decoder := gob.NewDecoder(bytes.NewReader(d))
 	err := decoder.Decode(&block)
-
 	return &block
 }
 ```
-
 这就是序列化部分的内容了。
 
 ## 持久化
@@ -127,25 +135,24 @@ func DeserializeBlock(d []byte) *Block {
 func NewBlockchain() *Blockchain {
 	var tip []byte
 	db, err := bolt.Open(dbFile, 0600, nil)
-
+	// 数据库事务
 	err = db.Update(func(tx *bolt.Tx) error {
+		
 		b := tx.Bucket([]byte(blocksBucket))
 
 		if b == nil {
 			genesis := NewGenesisBlock()
 			b, err := tx.CreateBucket([]byte(blocksBucket))
 			err = b.Put(genesis.Hash, genesis.Serialize())
+			// 最后的区块hash
 			err = b.Put([]byte("l"), genesis.Hash)
 			tip = genesis.Hash
 		} else {
 			tip = b.Get([]byte("l"))
 		}
-
 		return nil
 	})
-
 	bc := Blockchain{tip, db}
-
 	return &bc
 }
 ```
@@ -155,7 +162,6 @@ func NewBlockchain() *Blockchain {
 ```go
 db, err := bolt.Open(dbFile, 0600, nil)
 ```
-
 这是打开一个 BoltDB 文件的标准做法。注意，即使不存在这样的文件，它也不会返回错误。
 
 ```go
@@ -172,6 +178,7 @@ b := tx.Bucket([]byte(blocksBucket))
 if b == nil {
 	genesis := NewGenesisBlock()
 	b, err := tx.CreateBucket([]byte(blocksBucket))
+	// bucket block存储的数据
 	err = b.Put(genesis.Hash, genesis.Serialize())
 	err = b.Put([]byte("l"), genesis.Hash)
 	tip = genesis.Hash
@@ -192,12 +199,14 @@ bc := Blockchain{tip, db}
 
 ```go
 type Blockchain struct {
+	// 最新的hash
 	tip []byte
+	// 数据库信息
 	db  *bolt.DB
 }
 ```
 
-接下来我们想要更新的是 `AddBlock` 方法：现在向链中加入区块，就不是像之前向一个数组中加入一个元素那么简单了。从现在开始，我们会将区块存储在数据库里面：
+接下来我们想要更新的是 `AddBlock` 方法：现在向链中加入区块，就不是像之前向一个数组中加入一个元素那么简单了。从现在开始，我们会将区块存储在数据库里面(更新数据库)：
 
 ```go
 func (bc *Blockchain) AddBlock(data string) {
@@ -205,8 +214,8 @@ func (bc *Blockchain) AddBlock(data string) {
 
 	err := bc.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
+		// 读取最新的hash
 		lastHash = b.Get([]byte("l"))
-
 		return nil
 	})
 
@@ -215,6 +224,7 @@ func (bc *Blockchain) AddBlock(data string) {
 	err = bc.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 		err := b.Put(newBlock.Hash, newBlock.Serialize())
+		// 更新最新的hash
 		err = b.Put([]byte("l"), newBlock.Hash)
 		bc.tip = newBlock.Hash
 
@@ -229,7 +239,6 @@ func (bc *Blockchain) AddBlock(data string) {
 err := bc.db.View(func(tx *bolt.Tx) error {
 	b := tx.Bucket([]byte(blocksBucket))
 	lastHash = b.Get([]byte("l"))
-
 	return nil
 })
 ```
@@ -260,9 +269,9 @@ type BlockchainIterator struct {
 每当要对链中的块进行迭代时，我们就会创建一个迭代器，里面存储了当前迭代的块哈希（`currentHash`）和数据库的连接（`db`）。通过 `db`，迭代器逻辑上被附属到一个区块链上（这里的区块链指的是存储了一个数据库连接的 `Blockchain` 实例），并且通过 `Blockchain` 方法进行创建：
 
 ```go
+// 根据区块的数据结构从后向前遍历
 func (bc *Blockchain) Iterator() *BlockchainIterator {
 	bci := &BlockchainIterator{bc.tip, bc.db}
-
 	return bci
 }
 ```
@@ -278,8 +287,8 @@ func (i *BlockchainIterator) Next() *Block {
 	err := i.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 		encodedBlock := b.Get(i.currentHash)
+		// 区块信息
 		block = DeserializeBlock(encodedBlock)
-
 		return nil
 	})
 

@@ -4,6 +4,10 @@ import (
 	"fmt"
 )
 
+
+/**
+* 区块链是bitcoin最抽象的数据结构
+*/
 func main() {
 	bc := NewBlockChain()
 

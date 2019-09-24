@@ -7,6 +7,8 @@ import (
 	"os"
 )
 
+
+// 命令行解析
 type CLI struct {
 	bc *Blockchain
 }

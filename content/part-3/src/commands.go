@@ -5,6 +5,9 @@ import (
 	"strconv"
 )
 
+
+
+// 命令对应的函数
 func (cli *CLI) addBlock(data string) {
 	cli.bc.AddBlock(data)
 	fmt.Println("Success")
