@@ -44,6 +44,7 @@ type Transaction struct {
 ```go
 type TXOutput struct {
 	Value        int
+	// 公钥 => 使用私钥揭秘
 	ScriptPubKey string
 }
 ```
@@ -59,7 +60,7 @@ type TXOutput struct {
 
 由于还没有实现地址（address），所以目前我们会避免涉及逻辑相关的完整脚本。`ScriptPubKey` 将会存储一个任意的字符串（用户定义的钱包地址）。
 
->顺便说一下，有了一个这样的脚本语言，也意味着比特币其实也可以作为一个智能合约平台。
+> 顺便说一下，有了一个这样的脚本语言，也意味着比特币其实也可以作为一个智能合约平台.....
 
 关于输出，非常重要的一点是：它们是**不可再分的（indivisible）**。也就是说，你无法仅引用它的其中某一部分。要么不用，如果要用，必须一次性用完。当一个新的交易中引用了某个输出，那么这个输出必须被全部花费。如果它的值比需要的值大，那么就会产生一个找零，找零会返还给发送方。这跟现实世界的场景十分类似，当你想要支付的时候，如果一个东西值 1 美元，而你给了一个 5 美元的纸币，那么你会得到一个 4 美元的找零。
 
@@ -68,10 +69,14 @@ type TXOutput struct {
 现在，我们想要给其他人发送一些币。为此，我们需要创建一笔新的交易，将它放到一个块里，然后挖出这个块。之前我们只实现了 coinbase 交易（这是一种特殊的交易），现在我们需要一种通用的普通交易：
 
 ```go
+
+// 构造交易
 func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
+	
 	var inputs []TXInput
 	var outputs []TXOutput
-
+	
+	// 找到指定数量的utxo
 	acc, validOutputs := bc.FindSpendableOutputs(from, amount)
 
 	if acc < amount {
@@ -83,6 +88,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 		txID, err := hex.DecodeString(txid)
 
 		for _, out := range outs {
+			// 使用utxo构造inputs
 			input := TXInput{txID, out, from}
 			inputs = append(inputs, input)
 		}
@@ -91,12 +97,13 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 	// Build a list of outputs
 	outputs = append(outputs, TXOutput{amount, to})
 	if acc > amount {
+		// 计算找零的金额
 		outputs = append(outputs, TXOutput{acc - amount, from}) // a change
 	}
 
+    // 构造交易
 	tx := Transaction{nil, inputs, outputs}
 	tx.SetID()
-
 	return &tx
 }
 ```
@@ -110,27 +117,30 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 `FindSpendableOutputs` 方法基于之前定义的 `FindUnspentTransactions` 方法：
 
 ```go
+
+// 找到指定金额的输出
 func (bc *Blockchain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
+	// 所有未花费的交易
 	unspentTXs := bc.FindUnspentTransactions(address)
 	accumulated := 0
 
 Work:
+    // 遍历所有的交易
 	for _, tx := range unspentTXs {
 		txID := hex.EncodeToString(tx.ID)
-
+		// 交易的vout
 		for outIdx, out := range tx.Vout {
 			if out.CanBeUnlockedWith(address) && accumulated < amount {
 				accumulated += out.Value
+				// 这个语法 ...
 				unspentOutputs[txID] = append(unspentOutputs[txID], outIdx)
-
 				if accumulated >= amount {
 					break Work
 				}
 			}
 		}
 	}
-
 	return accumulated, unspentOutputs
 }
 ```
@@ -153,8 +163,9 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) {
 func (cli *CLI) send(from, to string, amount int) {
 	bc := NewBlockchain(from)
 	defer bc.db.Close()
-
+	// 创建新的交易
 	tx := NewUTXOTransaction(from, to, amount, bc)
+	//  把一堆交易写入区块
 	bc.MineBlock([]*Transaction{tx})
 	fmt.Println("Success!")
 }
@@ -233,11 +244,9 @@ Balance of 'Ivan': 2
 
 2. 奖励（reward）。现在挖矿是肯定无法盈利的！
 
-3. UTXO 集。获取余额需要扫描整个区块链，而当区块非常多的时候，这么做就会花费很长时间。并且，如果我们想要验证后续交易，也需要花费很长时间。而 UTXO 集就是为了解决这些问题，加快交易相关的操作。
+3. UTXO 集。获取余额需要扫描`整个区块链`，而当区块非常多的时候，这么做就会花费很长时间。并且，如果我们想要验证后续交易，也需要花费很长时间。而 `UTXO 集`就是为了解决这些问题，加快交易相关的操作。
 
 4. 内存池（mempool）。在交易被打包到块之前，这些交易被存储在内存池里面。在我们目前的实现中，一个块仅仅包含一笔交易，这是相当低效的。
-
-
 
 ## 交易输入
 
@@ -253,7 +262,10 @@ type TXInput struct {
 
 正如之前所提到的，一个输入引用了之前交易的一个输出：`Txid` 存储的是之前交易的 ID，`Vout` 存储的是该输出在那笔交易中所有输出的索引（因为一笔交易可能有多个输出，需要有信息指明是具体的哪一个）。`ScriptSig` 是一个脚本，提供了可解锁输出结构里面 `ScriptPubKey` 字段的数据。如果 `ScriptSig` 提供的数据是正确的，那么输出就会被解锁，然后被解锁的值就可以被用于产生新的输出；如果数据不正确，输出就无法被引用在输入中，或者说，无法使用这个输出。这种机制，保证了用户无法花费属于其他人的币。
 
+不同的锁定方式:p2pk,p2pkh...
+
 再次强调，由于我们还没有实现地址，所以目前 `ScriptSig` 将仅仅存储一个用户自定义的任意钱包地址。我们会在下一篇文章中实现公钥（public key）和签名（signature）。
+
 
 来简要总结一下。输出，就是 “币” 存储的地方。每个输出都会带有一个解锁脚本，这个脚本定义了解锁该输出的逻辑。每笔新的交易，必须至少有一个输入和输出。一个输入引用了之前一笔交易的输出，并提供了解锁数据（也就是 `ScriptSig` 字段），该数据会被用在输出的解锁脚本中解锁输出，解锁完成后即可使用它的值去产生新的输出。
 
@@ -265,6 +277,7 @@ type TXInput struct {
 
 当矿工挖出一个新的块时，它会向新的块中添加一个 **coinbase** 交易。coinbase 交易是一种特殊的交易，它不需要引用之前一笔交易的输出。它“凭空”产生了币（也就是产生了新币），这是矿工获得挖出新块的奖励，也可以理解为“发行新币”。
 
+
 在区块链的最初，也就是第一个块，叫做创世块。正是这个创世块，产生了区块链最开始的输出。对于创世块，不需要引用之前的交易输出。因为在创世块之前根本不存在交易，也就没有不存在交易输出。
 
 来创建一个 coinbase 交易：
@@ -275,11 +288,11 @@ func NewCoinbaseTX(to, data string) *Transaction {
 		data = fmt.Sprintf("Reward to '%s'", to)
 	}
 
+    // 默认-1,data是存储的数据
 	txin := TXInput{[]byte{}, -1, data}
 	txout := TXOutput{subsidy, to}
 	tx := Transaction{nil, []TXInput{txin}, []TXOutput{txout}}
 	tx.SetID()
-
 	return &tx
 }
 ```
@@ -290,6 +303,12 @@ coinbase 交易只有一个输出，没有输入。在我们的实现中，它�
 
 `subsidy` 是挖出新块的奖励金。在比特币中，实际并没有存储这个数字，而是基于区块总数进行计算而得：区块总数除以 210000 就是 `subsidy`。挖出创世块的奖励是 50 BTC，每挖出 `210000` 个块后，奖励减半。在我们的实现中，这个奖励值将会是一个常量（至少目前是）。
 
+$$
+   BTC总数 = 21W * 50 * (1 + 1/2 + 1/4 + ..)
+   = 21W * 100 = 2100W个
+   出块时间 = 10M
+$$
+
 ## 将交易保存到区块链
 
 从现在开始，每个块必须存储至少一笔交易。如果没有交易，也就不可能出新的块。这意味着我们应该移除 `Block` 的 `Data` 字段，取而代之的是存储交易：
@@ -297,6 +316,7 @@ coinbase 交易只有一个输出，没有输入。在我们的实现中，它�
 ```go
 type Block struct {
 	Timestamp     int64
+	// 这里是以列表的形式存储的交易
 	Transactions  []*Transaction
 	PrevBlockHash []byte
 	Hash          []byte
@@ -323,9 +343,12 @@ func NewGenesisBlock(coinbase *Transaction) *Block {
 func CreateBlockchain(address string) *Blockchain {
 	...
 	err = db.Update(func(tx *bolt.Tx) error {
+		// 创建coinbase交易
+		// 奖励可以通过算法计算调节
 		cbtx := NewCoinbaseTX(address, genesisCoinbaseData)
+		// 创建创世区块
 		genesis := NewGenesisBlock(cbtx)
-
+		// 保存区块
 		b, err := tx.CreateBucket([]byte(blocksBucket))
 		err = b.Put(genesis.Hash, genesis.Serialize())
 		...
@@ -338,7 +361,7 @@ func CreateBlockchain(address string) *Blockchain {
 
 ## 工作量证明
 
-工作量证明算法必须要将存储在区块里面的交易考虑进去，从而保证区块链交易存储的一致性和可靠性。所以，我们必须修改 `ProofOfWork.prepareData` 方法：
+工作量证明算法必须要将存储在区块里面的交易考虑进去，从而`保证区块链交易存储的一致性和可靠性`。所以，我们必须修改 `ProofOfWork.prepareData` 方法：
 
 ```go
 func (pow *ProofOfWork) prepareData(nonce int) []byte {
@@ -352,7 +375,6 @@ func (pow *ProofOfWork) prepareData(nonce int) []byte {
 		},
 		[]byte{},
 	)
-
 	return data
 }
 ```
@@ -363,19 +385,19 @@ func (pow *ProofOfWork) prepareData(nonce int) []byte {
 func (b *Block) HashTransactions() []byte {
 	var txHashes [][]byte
 	var txHash [32]byte
-
 	for _, tx := range b.Transactions {
 		txHashes = append(txHashes, tx.ID)
 	}
+	// 对所有的交易去hash
+	// btc merkle-tree的结构
 	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
-
 	return txHash[:]
 }
 ```
 
-通过哈希提供数据的唯一表示，这种做法我们已经不是第一次遇到了。我们想要通过仅仅一个哈希，就可以识别一个块里面的所有交易。为此，先获得每笔交易的哈希，然后将它们关联起来，最后获得一个连接后的组合哈希。
+通过哈希提供数据的唯一表示，这种做法我们已经不是第一次遇到了。我们想要通过仅仅一个哈希，就可以识别一个块里面的所有交易。为此，先获得每笔交易的哈希，然后将它们关联起来，最后获得一个连接后的`组合哈希`。
 
->比特币使用了一个更加复杂的技术：它将一个块里面包含的所有交易表示为一个  [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) ，然后在工作量证明系统中使用树的根哈希（root hash）。这个方法能够让我们快速检索一个块里面是否包含了某笔交易，即只需 root hash 而无需下载所有交易即可完成判断。
+> 比特币使用了一个更加复杂的技术：它将一个块里面包含的所有交易表示为一个  [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) ，然后在工作量证明系统中使用树的根哈希（root hash）。这个方法能够让我们快速检索一个块里面是否包含了某笔交易，即只需 root hash 而无需下载所有交易即可完成判断。
 
 来检查一下到目前为止是否正确：
 
@@ -386,7 +408,7 @@ $ blockchain_go createblockchain -address Ivan
 Done!
 ```
 
-很好！我们已经获得了第一笔挖矿奖励，但是，我们要如何查看余额呢？
+很好！我们已经获得了第一笔挖矿奖励，但是，我们要如何查看余额呢？ => 计算账户的余额
 
 ## 未花费交易输出
 
@@ -401,6 +423,7 @@ Done!
 
 ```go
 func (in *TXInput) CanUnlockOutputWith(unlockingData string) bool {
+	// 目前使用equal
 	return in.ScriptSig == unlockingData
 }
 
@@ -415,20 +438,26 @@ func (out *TXOutput) CanBeUnlockedWith(unlockingData string) bool {
 
 ```go
 func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
+  
+  // 没有花费的交易
   var unspentTXs []Transaction
+  // 已经花费的交易
   spentTXOs := make(map[string][]int)
   bci := bc.Iterator()
 
   for {
-    block := bci.Next()
-
+	// 遍历区块
+	block := bci.Next()
+	// 遍历交易
     for _, tx := range block.Transactions {
       txID := hex.EncodeToString(tx.ID)
 
-    Outputs:
+	Outputs:
+	  // 遍历交易的输出
       for outIdx, out := range tx.Vout {
         // Was the output spent?
         if spentTXOs[txID] != nil {
+			// 已经记录
           for _, spentOut := range spentTXOs[txID] {
             if spentOut == outIdx {
               continue Outputs
@@ -444,18 +473,17 @@ func (bc *Blockchain) FindUnspentTransactions(address string) []Transaction {
       if tx.IsCoinbase() == false {
         for _, in := range tx.Vin {
           if in.CanUnlockOutputWith(address) {
-            inTxID := hex.EncodeToString(in.Txid)
+			inTxID := hex.EncodeToString(in.Txid)
+			// 已经话费的交易
             spentTXOs[inTxID] = append(spentTXOs[inTxID], in.Vout)
           }
         }
       }
     }
-
     if len(block.PrevBlockHash) == 0 {
       break
     }
   }
-
   return unspentTXs
 }
 ```
@@ -496,6 +524,8 @@ if tx.IsCoinbase() == false {
 这个函数返回了一个交易列表，里面包含了未花费输出。为了计算余额，我们还需要一个函数将这些交易作为输入，然后仅返回一个输出：
 
 ```go
+
+// 对于utxo没有单独拆分做优化存储
 func (bc *Blockchain) FindUTXO(address string) []TXOutput {
        var UTXOs []TXOutput
        unspentTransactions := bc.FindUnspentTransactions(address)
@@ -522,6 +552,8 @@ func (cli *CLI) getBalance(address string) {
 	balance := 0
 	UTXOs := bc.FindUTXO(address)
 
+
+    // 对所有的utxo 求 sum
 	for _, out := range UTXOs {
 		balance += out.Value
 	}
