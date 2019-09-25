@@ -1,9 +1,22 @@
 交易（2）
 ========
 
+<!-- TOC -->
+
+- [交易（2）](#%e4%ba%a4%e6%98%932)
+  - [引言](#%e5%bc%95%e8%a8%80)
+  - [奖励](#%e5%a5%96%e5%8a%b1)
+  - [UTXO 集](#utxo-%e9%9b%86)
+  - [Merkle 树](#merkle-%e6%a0%91)
+  - [P2PKH](#p2pkh)
+  - [总结](#%e6%80%bb%e7%bb%93)
+
+<!-- /TOC -->
+
+
 ## 引言
 
-在这个系列文章的一开始，我们就提到了，区块链是一个分布式数据库。不过在之前的文章中，我们选择性地跳过了“分布式”这个部分，而是将注意力都放到了“数据库”部分。到目前为止，我们几乎已经实现了一个区块链数据库的所有元素。今天，我们将会分析之前跳过的一些机制。而在下一篇文章中，我们将会开始讨论区块链的分布式特性。
+在这个系列文章的一开始，我们就提到了，区块链是一个分布式数据库。不过在之前的文章中，我们选择性地跳过了“分布式”这个部分，而是将注意力都放到了“数据库”部分。到目前为止，我们几乎已经实现了一个区块链数据库的所有元素。今天，我们将会分析之前跳过的一些机制。而在下一篇文章中，我们将会开始讨论`区块链的分布式特性`。
 
 之前的系列文章：
 
@@ -30,7 +43,9 @@ func (cli *CLI) send(from, to string, amount int) {
     UTXOSet := UTXOSet{bc}
     defer bc.db.Close()
 
+    // 创建交易
     tx := NewUTXOTransaction(from, to, amount, &UTXOSet)
+    // 创建区块
     cbTx := NewCoinbaseTX(from, "")
     txs := []*Transaction{cbTx, tx}
 
@@ -76,7 +91,7 @@ func (bc *Blockchain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 }
 ```
 
-这个函数找到有未花费输出的交易。由于交易被保存在区块中，所以它会对区块链里面的每一个区块进行迭代，检查里面的每一笔交易。截止 2017 年 9 月 18 日，在比特币中已经有 485，860 个块，整个数据库所需磁盘空间超过 140 Gb。这意味着一个人如果想要验证交易，必须要运行一个全节点。此外，验证交易将会需要在许多块上进行迭代。
+这个函数找到有未花费输出的交易。由于交易被保存在区块中，所以它会对区块链里面的每一个区块进行迭代，检查里面的每一笔交易。截止 2017 年 9 月 18 日，在比特币中已经有 485，860 个块，`整个数据库所需磁盘空间超过 140 Gb。这意味着一个人如果想要验证交易，必须要运行一个全节点`。此外，验证交易将会需要在许多块上进行迭代。
 
 整个问题的解决方案是有一个仅有未花费输出的索引，这就是 UTXO 集要做的事情：这是一个从所有区块链交易中构建（对区块进行迭代，但是只须做一次）而来的缓存，然后用它来计算余额和验证新的交易。截止 2017 年 9 月，UTXO 集大概有 2.7 Gb。
 
@@ -108,6 +123,7 @@ func (bc *Blockchain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 
 ```go
 type UTXOSet struct {
+    // 区块的结构
     Blockchain *Blockchain
 }
 ```
@@ -123,7 +139,8 @@ func (u UTXOSet) Reindex() {
         err := tx.DeleteBucket(bucketName)
         _, err = tx.CreateBucket(bucketName)
     })
-
+    
+    // 找到所有用户的utxo，并存入缓存
     UTXO := u.Blockchain.FindUTXO()
 
     err = db.Update(func(tx *bolt.Tx) error {
@@ -158,6 +175,7 @@ func (u UTXOSet) FindSpendableOutputs(pubkeyHash []byte, amount int) (int, map[s
             outs := DeserializeOutputs(v)
 
             for outIdx, out := range outs.Outputs {
+                // 找到指定用户的utxo
                 if out.IsLockedWithKey(pubkeyHash) && accumulated < amount {
                     accumulated += out.Value
                     unspentOutputs[txID] = append(unspentOutputs[txID], outIdx)
@@ -200,7 +218,9 @@ func (u UTXOSet) FindUTXO(pubKeyHash []byte) []TXOutput {
 
 这是 `Blockchain` 方法的简单修改后的版本。这个 `Blockchain` 方法已经不再需要了。
 
-有了 UTXO 集，也就意味着我们的数据（交易）现在已经被分开存储：实际交易被存储在区块链中，未花费输出被存储在 UTXO 集中。这样一来，我们就需要一个良好的同步机制，因为我们想要 UTXO 集时刻处于最新状态，并且存储最新交易的输出。但是我们不想每生成一个新块，就重新生成索引，因为这正是我们要极力避免的频繁区块链扫描。因此，我们需要一个机制来更新 UTXO 集：
+`utxo的更新时间....如何设计??`
+
+有了 UTXO 集，也就意味着我们的数据（交易）现在已经被分开存储：实际交易被存储在区块链中，未花费输出被存储在 UTXO 集中。这样一来，我们就需要一个良好的同步机制，`因为我们想要 UTXO 集时刻处于最新状态，并且存储最新交易的输出。但是我们不想每生成一个新块，就重新生成索引，因为这正是我们要极力避免的频繁区块链扫描。因此，我们需要一个机制来更新 UTXO 集`：
 
 ```go
 func (u UTXOSet) Update(block *Block) {
@@ -216,6 +236,8 @@ func (u UTXOSet) Update(block *Block) {
                     outsBytes := b.Get(vin.Txid)
                     outs := DeserializeOutputs(outsBytes)
 
+
+                    // 根据vin更新已经使用的utxo
                     for outIdx, out := range outs.Outputs {
                         if outIdx != vin.Vout {
                             updatedOuts.Outputs = append(updatedOuts.Outputs, out)
@@ -231,6 +253,7 @@ func (u UTXOSet) Update(block *Block) {
                 }
             }
 
+            // 根据vout,记录新交易的全部输出
             newOutputs := TXOutputs{}
             for _, out := range tx.Vout {
                 newOutputs.Outputs = append(newOutputs.Outputs, out)
@@ -264,6 +287,7 @@ func (cli *CLI) createBlockchain(address string) {
 func (cli *CLI) send(from, to string, amount int) {
     ...
     newBlock := bc.MineBlock(txs)
+    // 生成新的区块
     UTXOSet.Update(newBlock)
 }
 ```
@@ -312,7 +336,7 @@ Balance of '13UASQpCR8Nr41PojH8Bz4K6cmTCqweskL': 4
 
 在中本聪的 [比特币原始论文](https://bitcoin.org/bitcoin.pdf) 中，对这个问题也有一个解决方案：简易支付验证（Simplified Payment Verification, SPV）。SPV 是一个比特币轻节点，它不需要下载整个区块链，也**不需要验证区块和交易**。相反，它会在区块链查找交易（为了验证支付），并且需要连接到一个全节点来检索必要的数据。这个机制允许在仅运行一个全节点的情况下有多个轻钱包。
 
-为了实现 SPV，需要有一个方式来检查是否一个区块包含了某笔交易，而无须下载整个区块。这就是 Merkle 树所要完成的事情。
+为了实现 SPV，`需要有一个方式来检查是否一个区块包含了某笔交易`，而无须下载整个区块。这就是 Merkle 树所要完成的事情。
 
 比特币用 Merkle 树来获取交易哈希，哈希被保存在区块头中，并会用于工作量证明系统。到目前为止，我们只是将一个块里面的每笔交易哈希连接了起来，将在上面应用了 SHA-256 算法。虽然这是一个用于获取区块交易唯一表示的一个不错的途径，但是它没有利用到 Merkle 树。
 
@@ -320,11 +344,11 @@ Balance of '13UASQpCR8Nr41PojH8Bz4K6cmTCqweskL': 4
 
 ![Merkle tree](http://upload-images.jianshu.io/upload_images/127313-9c708d3c3d6a19c2.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
 
-每个块都会有一个 Merkle 树，它从叶子节点（树的底部）开始，一个叶子节点就是一个交易哈希（比特币使用双 SHA256 哈希）。叶子节点的数量必须是双数，但是并非每个块都包含了双数的交易。因为，如果一个块里面的交易数为单数，那么就将最后一个叶子节点（也就是 Merkle 树的最后一个交易，不是区块的最后一笔交易）复制一份凑成双数。
+每个块都会有一个 Merkle 树，它从叶子节点（树的底部）开始，一个叶子节点就是一个交易哈希（比特币使用双 SHA256 哈希）。叶子节点的数量必须是`双数`，但是并非每个块都包含了双数的交易。因为，如果一个块里面的交易数为单数，那么就将最后一个叶子节点（也就是 Merkle 树的最后一个交易，不是区块的最后一笔交易）复制一份凑成双数。
 
 从下往上，两两成对，连接两个节点哈希，将组合哈希作为新的哈希。新的哈希就成为新的树节点。重复该过程，直到仅有一个节点，也就是树根。根哈希然后就会当做是整个块交易的唯一标示，将它保存到区块头，然后用于工作量证明。
 
-Merkle 树的好处就是一个节点可以在不下载整个块的情况下，验证是否包含某笔交易。并且这些只需要一个交易哈希，一个 Merkle 树根哈希和一个 Merkle 路径。
+`Merkle 树的好处就是一个节点可以在不下载整个块的情况下，验证是否包含某笔交易。并且这些只需要一个交易哈希，一个 Merkle 树根哈希和一个 Merkle 路径`。
 
 最后，来写代码：
 
@@ -370,6 +394,8 @@ func NewMerkleNode(left, right *MerkleNode, data []byte) *MerkleNode {
 func NewMerkleTree(data [][]byte) *MerkleTree {
     var nodes []MerkleNode
 
+
+    // 保证双数
     if len(data)%2 != 0 {
         data = append(data, data[len(data)-1])
     }
@@ -379,6 +405,7 @@ func NewMerkleTree(data [][]byte) *MerkleTree {
         nodes = append(nodes, *node)
     }
 
+    // 构建区块
     for i := 0; i < len(data)/2; i++ {
         var newLevel []MerkleNode
 
@@ -407,8 +434,10 @@ func (b *Block) HashTransactions() []byte {
     var transactions [][]byte
 
     for _, tx := range b.Transactions {
+        // 所有序列化的交易
         transactions = append(transactions, tx.Serialize())
     }
+    // 使用所有的交易构建merkle tree
     mTree := NewMerkleTree(transactions)
 
     return mTree.RootNode.Data
@@ -424,6 +453,7 @@ func (b *Block) HashTransactions() []byte {
 大家应该还记得，在比特币中有一个 *脚本（Script）*编程语言，它用于锁定交易输出；交易输入提供了解锁输出的数据。这个语言非常简单，用这个语言写的代码其实就是一系列数据和操作符而已。比如如下示例：
 
 ```
+// 使用stack
 5 2 OP_ADD 7 OP_EQUAL
 ```
 
@@ -452,9 +482,9 @@ func (b *Block) HashTransactions() []byte {
 
 这个脚本实际存储为两个部分：
 
-1. 第一个部分，`<signature> <pubkey>`，存储在输入的 `ScriptSig` 字段。
+1. 第一个部分，`<signature> <pubkey>`，存储在输入的 `ScriptSig` 字段。 vin的输入脚本
 
-2. 第二部分，`OP_DUP OP_HASH160 <pubkeyHash> OP_EQUALVERYFY OP_CHECKSIG` 存储在输出的 `ScriptPubKey` 里面。
+2. 第二部分，`OP_DUP OP_HASH160 <pubkeyHash> OP_EQUALVERYFY OP_CHECKSIG` 存储在输出的 `ScriptPubKey` 里面。vout的验证脚本
 
 因此，输出定了解锁的逻辑，输入提供解锁输出的“钥匙”。然我们来执行一下这个脚本：
 
